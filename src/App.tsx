@@ -418,9 +418,7 @@ function App() {
                   <span className="info-label">版本</span>
                   <span className="info-value">
                     v{appVersion || "未知"}
-                    {appVersion === "0.1.0" ? (
-                      <span className="tag model" style={{ marginLeft: 8 }}>当前版本</span>
-                    ) : null}
+                    <span className="tag model" style={{ marginLeft: 8 }}>当前版本</span>
                   </span>
                 </div>
                 <div className="info-row">
