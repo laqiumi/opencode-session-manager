@@ -24,6 +24,7 @@ pub struct SessionInfo {
     pub cost: f64,
     pub tokens_input: i64,
     pub tokens_output: i64,
+    pub last_user_message: Option<String>,
 }
 
 #[tauri::command]

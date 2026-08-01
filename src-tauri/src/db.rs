@@ -40,7 +40,18 @@ pub fn list_sessions(path: &str) -> Result<Vec<SessionInfo>, String> {
                 s.model, s.agent,
                 s.time_created, s.time_updated, s.time_archived,
                 (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id) AS message_count,
-                s.cost, s.tokens_input, s.tokens_output
+                s.cost, s.tokens_input, s.tokens_output,
+                (
+                    SELECT pt.data FROM part pt
+                    JOIN message pm ON pm.id = pt.message_id
+                    WHERE pm.session_id = s.id
+                      AND json_extract(pm.data, '$.role') = 'user'
+                      AND json_extract(pt.data, '$.type') = 'text'
+                      AND json_extract(pt.data, '$.text') IS NOT NULL
+                      AND COALESCE(json_extract(pt.data, '$.synthetic'), 0) = 0
+                    ORDER BY pt.time_created DESC
+                    LIMIT 1
+                ) AS last_user_part
             FROM session s
             LEFT JOIN project p ON p.id = s.project_id
             ORDER BY s.time_updated DESC
@@ -50,6 +61,16 @@ pub fn list_sessions(path: &str) -> Result<Vec<SessionInfo>, String> {
 
     let rows = stmt
         .query_map([], |row| {
+            let last_part: Option<String> = row.get(13)?;
+            let last_user_message = last_part
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                .and_then(|v| {
+                    v.get("text")
+                        .and_then(|t| t.as_str())
+                        .map(|s| s.trim().to_string())
+                })
+                .filter(|s| !s.is_empty());
+
             Ok(SessionInfo {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -65,6 +86,7 @@ pub fn list_sessions(path: &str) -> Result<Vec<SessionInfo>, String> {
                 tokens_input: row.get(11)?,
                 tokens_output: row.get(12)?,
                 folder_name: String::new(),
+                last_user_message,
             })
         })
         .map_err(|e| format!("读取失败: {}", e))?;
@@ -119,8 +141,14 @@ mod tests {
         assert!(sorted, "应按时序倒序排列");
         println!("共 {} 个会话", sessions.len());
         for s in sessions.iter().take(5) {
-            println!("  {} | {} | {}", s.title, s.folder_name, s.time_updated);
+            println!(
+                "  {} | {} | {} | 上次: {:?}",
+                s.title, s.folder_name, s.time_updated, s.last_user_message
+            );
         }
+
+        let with_last = sessions.iter().filter(|s| s.last_user_message.is_some()).count();
+        println!("有最后用户消息的会话: {} / {}", with_last, sessions.len());
     }
 
     #[test]

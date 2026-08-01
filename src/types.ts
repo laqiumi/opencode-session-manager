@@ -13,4 +13,5 @@ export interface SessionInfo {
   cost: number;
   tokens_input: number;
   tokens_output: number;
+  last_user_message: string | null;
 }

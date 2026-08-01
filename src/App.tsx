@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import type { SessionInfo } from "./types";
 import "./App.css";
 
@@ -50,7 +51,13 @@ function App() {
   const [search, setSearch] = useState("");
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -155,6 +162,16 @@ function App() {
     [sessions],
   );
 
+  const totalMessages = useMemo(
+    () => sessions.reduce((acc, s) => acc + s.message_count, 0),
+    [sessions],
+  );
+
+  const totalCost = useMemo(
+    () => sessions.reduce((acc, s) => acc + s.cost, 0),
+    [sessions],
+  );
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -250,6 +267,23 @@ function App() {
             </svg>
             {loading ? "刷新中…" : "刷新"}
           </button>
+
+          <button className="refresh-btn settings-btn" onClick={() => setSettingsOpen(true)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+                stroke="currentColor"
+                strokeWidth="2"
+              />
+              <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+            设置
+          </button>
         </header>
 
         <div className="list-header">
@@ -292,6 +326,12 @@ function App() {
                     {s.agent && <span className="tag agent">{s.agent}</span>}
                     {s.model && <span className="tag model">{s.model}</span>}
                   </div>
+                  {s.last_user_message && (
+                    <div className="session-last" title={s.last_user_message}>
+                      <span className="last-label">上次：</span>
+                      {s.last_user_message}
+                    </div>
+                  )}
                   <div className="session-meta">
                     <span className="meta-item" title={s.directory}>
                       <span className="meta-icon">📁</span>
@@ -356,6 +396,102 @@ function App() {
             ))}
         </div>
       </main>
+
+      {settingsOpen && (
+        <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>
+          <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="settings-header">
+              <h2>设置与关于</h2>
+              <button className="search-clear close-btn" onClick={() => setSettingsOpen(false)}>
+                ×
+              </button>
+            </div>
+
+            <div className="settings-body">
+              <section className="settings-section">
+                <h3>应用信息</h3>
+                <div className="info-row">
+                  <span className="info-label">名称</span>
+                  <span className="info-value">OpenCode 会话管理器</span>
+                </div>
+                <div className="info-row">
+                  <span className="info-label">版本</span>
+                  <span className="info-value">
+                    v{appVersion || "未知"}
+                    {appVersion === "0.1.0" ? (
+                      <span className="tag model" style={{ marginLeft: 8 }}>当前版本</span>
+                    ) : null}
+                  </span>
+                </div>
+                <div className="info-row">
+                  <span className="info-label">技术栈</span>
+                  <span className="info-value">Tauri 2 · React 19 · rusqlite</span>
+                </div>
+              </section>
+
+              <section className="settings-section">
+                <h3>数据统计</h3>
+                <div className="stats-grid">
+                  <div className="stat-card">
+                    <div className="stat-num">{sessions.length}</div>
+                    <div className="stat-label">会话</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-num">{folders.length}</div>
+                    <div className="stat-label">文件夹</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-num">{formatTokens(totalTokens)}</div>
+                    <div className="stat-label">Tokens</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-num">{formatTokens(totalMessages)}</div>
+                    <div className="stat-label">消息</div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="settings-section">
+                <h3>数据库</h3>
+                <div className="info-row db-row">
+                  <span className="info-label">路径</span>
+                  <span className="info-value mono">{dbPath || "加载中…"}</span>
+                </div>
+                <div className="info-row">
+                  <span className="info-label">累计消耗</span>
+                  <span className="info-value">
+                    {totalCost.toFixed(4)} USD · ≈ {formatTokens(totalTokens)} tokens
+                  </span>
+                </div>
+                <div className="settings-actions">
+                  <button
+                    className="refresh-btn"
+                    onClick={() =>
+                      invoke("open_folder", {
+                        directory: dbPath.replace(/\\[^\\]+$/, ""),
+                      }).catch((e) => alert(`无法打开文件夹：${e}`))
+                    }
+                    disabled={!dbPath}
+                  >
+                    📂 打开数据目录
+                  </button>
+                  <button className="refresh-btn" onClick={() => setSettingsOpen(false)}>
+                    刷新列表
+                  </button>
+                </div>
+              </section>
+
+              <section className="settings-section">
+                <h3>关于更新</h3>
+                <p className="settings-note">
+                  更新软件：重新运行 <code>npm run tauri build</code> 生成安装包，覆盖安装即可。版本号在
+                  <code> package.json </code> 中修改。
+                </p>
+              </section>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
