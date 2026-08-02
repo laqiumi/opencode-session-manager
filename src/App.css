@@ -186,6 +186,45 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.source-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 3px;
+}
+
+.source-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  padding: 6px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12.5px;
+  transition: all 0.12s;
+  white-space: nowrap;
+}
+
+.source-tab:hover {
+  color: var(--text);
+}
+
+.source-tab.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 500;
+}
+
+.source-tab-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
 .search-box {
   flex: 1;
   max-width: 420px;
@@ -338,6 +377,21 @@ body {
 .tag.model {
   color: #7fb3ff;
   background: rgba(79, 140, 255, 0.12);
+}
+
+.tag.source-opencode {
+  color: #7fb3ff;
+  background: rgba(79, 140, 255, 0.12);
+}
+
+.tag.source-codex {
+  color: #7be0a6;
+  background: rgba(61, 200, 130, 0.12);
+}
+
+.tag.source-claude {
+  color: #e0b07b;
+  background: rgba(224, 176, 123, 0.12);
 }
 
 .tag.agent {

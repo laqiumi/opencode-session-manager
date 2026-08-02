@@ -37,11 +37,13 @@ function formatFullTime(ts: number): string {
   });
 }
 
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return `${n}`;
-}
+type Source = "opencode" | "codex" | "claude";
+
+const SOURCE_TABS: { key: Source; label: string; icon: string }[] = [
+  { key: "opencode", label: "OpenCode", icon: "⌘" },
+  { key: "codex", label: "Codex", icon: "✳" },
+  { key: "claude", label: "Claude", icon: "◈" },
+];
 
 function App() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
@@ -49,6 +51,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [dbPath, setDbPath] = useState("");
   const [search, setSearch] = useState("");
+  const [source, setSource] = useState<Source>("opencode");
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -64,17 +67,19 @@ function App() {
     setError(null);
     try {
       const [list, path] = await Promise.all([
-        invoke<SessionInfo[]>("list_sessions"),
+        invoke<SessionInfo[]>("list_sessions", { source }),
         invoke<string>("get_db_path"),
       ]);
       setSessions(list);
       setDbPath(path);
+      setSelectedFolder(null);
+      setSearch("");
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [source]);
 
   useEffect(() => {
     load();
@@ -120,7 +125,7 @@ function App() {
       if (!confirm(`确定删除会话「${s.title}」？\n删除后不可恢复。`)) return;
       setDeleting(s.id);
       try {
-        await invoke("delete_session", { id: s.id });
+        await invoke("delete_session", { source: s.source, id: s.id });
         setSessions((prev) => prev.filter((x) => x.id !== s.id));
       } catch (e) {
         alert(`删除失败：${e}`);
@@ -133,8 +138,8 @@ function App() {
 
   const handleContinue = useCallback(
     (s: SessionInfo) => {
-      invoke("continue_session", { directory: s.directory, id: s.id }).catch((e) =>
-        alert(`无法继续会话：${e}`),
+      invoke("continue_session", { source: s.source, directory: s.directory, id: s.id }).catch(
+        (e) => alert(`无法继续会话：${e}`),
       );
     },
     [],
@@ -156,19 +161,8 @@ function App() {
     [],
   );
 
-  const totalTokens = useMemo(
-    () =>
-      sessions.reduce((acc, s) => acc + s.tokens_input + s.tokens_output, 0),
-    [sessions],
-  );
-
   const totalMessages = useMemo(
     () => sessions.reduce((acc, s) => acc + s.message_count, 0),
-    [sessions],
-  );
-
-  const totalCost = useMemo(
-    () => sessions.reduce((acc, s) => acc + s.cost, 0),
     [sessions],
   );
 
@@ -180,7 +174,7 @@ function App() {
             <span className="logo-mark">⌘</span>
           </div>
           <div>
-            <h1 className="app-title">OpenCode 会话管理</h1>
+            <h1 className="app-title">AI 会话管理</h1>
             <p className="app-subtitle">
               {sessions.length} 个会话 · {folders.length} 个文件夹
             </p>
@@ -219,6 +213,19 @@ function App() {
 
       <main className="main">
         <header className="toolbar">
+          <div className="source-tabs">
+            {SOURCE_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                className={`source-tab ${source === tab.key ? "active" : ""}`}
+                onClick={() => setSource(tab.key)}
+              >
+                <span className="source-tab-icon">{tab.icon}</span>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
           <div className="search-box">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
               <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
@@ -244,9 +251,7 @@ function App() {
           </div>
 
           <div className="toolbar-stats">
-            <span title="总 Token 消耗">
-              ≈ {formatTokens(totalTokens)} tokens
-            </span>
+            <span title="消息总数">{totalMessages} 条消息</span>
           </div>
 
           <button className="refresh-btn" onClick={load} disabled={loading}>
@@ -323,7 +328,9 @@ function App() {
                 <div className="session-main">
                   <div className="session-title-row">
                     <span className="session-title">{s.title || "(无标题)"}</span>
-                    {s.agent && <span className="tag agent">{s.agent}</span>}
+                    {s.source && (
+                      <span className={`tag source-${s.source}`}>{s.source}</span>
+                    )}
                     {s.model && <span className="tag model">{s.model}</span>}
                   </div>
                   {s.last_user_message && (
@@ -345,10 +352,6 @@ function App() {
                       <span className="meta-icon">💬</span>
                       {s.message_count}
                     </span>
-                    <span className="meta-item" title="Token 消耗">
-                      <span className="meta-icon">⚡</span>
-                      {formatTokens(s.tokens_input + s.tokens_output)}
-                    </span>
                   </div>
                 </div>
 
@@ -362,13 +365,15 @@ function App() {
                 </div>
 
                 <div className="session-actions">
-                  <button
-                    className="act-btn"
-                    onClick={() => handleContinue(s)}
-                    title="在 Windows Terminal 中打开该文件夹并 opencode -s 继续此会话"
-                  >
-                    ▶ 继续
-                  </button>
+                  {s.source !== "codex" && (
+                    <button
+                      className="act-btn"
+                      onClick={() => handleContinue(s)}
+                      title="在 Windows Terminal 中打开该文件夹并继续此会话"
+                    >
+                      ▶ 继续
+                    </button>
+                  )}
                   <button
                     className="act-btn"
                     onClick={() => handleOpenFolder(s)}
@@ -439,26 +444,32 @@ function App() {
                     <div className="stat-label">文件夹</div>
                   </div>
                   <div className="stat-card">
-                    <div className="stat-num">{formatTokens(totalTokens)}</div>
-                    <div className="stat-label">Tokens</div>
+                    <div className="stat-num">{totalMessages}</div>
+                    <div className="stat-label">消息</div>
                   </div>
                   <div className="stat-card">
-                    <div className="stat-num">{formatTokens(totalMessages)}</div>
-                    <div className="stat-label">消息</div>
+                    <div className="stat-num">{SOURCE_TABS.length}</div>
+                    <div className="stat-label">数据源</div>
                   </div>
                 </div>
               </section>
 
               <section className="settings-section">
-                <h3>数据库</h3>
+                <h3>数据目录</h3>
                 <div className="info-row db-row">
-                  <span className="info-label">路径</span>
-                  <span className="info-value mono">{dbPath || "加载中…"}</span>
+                  <span className="info-label">当前</span>
+                  <span className="info-value mono">
+                    {source === "opencode"
+                      ? dbPath
+                      : source === "codex"
+                        ? "~/.codex"
+                        : "~/.claude"}
+                  </span>
                 </div>
                 <div className="info-row">
-                  <span className="info-label">累计消耗</span>
+                  <span className="info-label">来源</span>
                   <span className="info-value">
-                    {totalCost.toFixed(4)} USD · ≈ {formatTokens(totalTokens)} tokens
+                    OpenCode 读 SQLite · Codex 读 session_index · Claude 读 projects/
                   </span>
                 </div>
                 <div className="settings-actions">

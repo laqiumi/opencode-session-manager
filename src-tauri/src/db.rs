@@ -36,11 +36,10 @@ pub fn list_sessions(path: &str) -> Result<Vec<SessionInfo>, String> {
         .prepare(
             r#"
             SELECT
-                s.id, s.title, s.directory, p.name,
-                s.model, s.agent,
-                s.time_created, s.time_updated, s.time_archived,
+                s.id, s.title, s.directory,
+                s.model,
+                s.time_created, s.time_updated,
                 (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id) AS message_count,
-                s.cost, s.tokens_input, s.tokens_output,
                 (
                     SELECT pt.data FROM part pt
                     JOIN message pm ON pm.id = pt.message_id
@@ -53,7 +52,6 @@ pub fn list_sessions(path: &str) -> Result<Vec<SessionInfo>, String> {
                     LIMIT 1
                 ) AS last_user_part
             FROM session s
-            LEFT JOIN project p ON p.id = s.project_id
             ORDER BY s.time_updated DESC
             "#,
         )
@@ -61,7 +59,7 @@ pub fn list_sessions(path: &str) -> Result<Vec<SessionInfo>, String> {
 
     let rows = stmt
         .query_map([], |row| {
-            let last_part: Option<String> = row.get(13)?;
+            let last_part: Option<String> = row.get(7)?;
             let last_user_message = last_part
                 .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
                 .and_then(|v| {
@@ -71,21 +69,18 @@ pub fn list_sessions(path: &str) -> Result<Vec<SessionInfo>, String> {
                 })
                 .filter(|s| !s.is_empty());
 
+            let directory: String = row.get(2)?;
+
             Ok(SessionInfo {
+                source: String::new(),
                 id: row.get(0)?,
                 title: row.get(1)?,
-                directory: row.get(2)?,
-                project_name: row.get(3)?,
-                model: row.get(4)?,
-                agent: row.get(5)?,
-                time_created: row.get(6)?,
-                time_updated: row.get(7)?,
-                time_archived: row.get(8)?,
-                message_count: row.get(9)?,
-                cost: row.get(10)?,
-                tokens_input: row.get(11)?,
-                tokens_output: row.get(12)?,
-                folder_name: String::new(),
+                directory: directory.clone(),
+                folder_name: folder_name(&directory),
+                model: row.get(3)?,
+                time_created: row.get(4)?,
+                time_updated: row.get(5)?,
+                message_count: row.get(6)?,
                 last_user_message,
             })
         })
@@ -93,8 +88,7 @@ pub fn list_sessions(path: &str) -> Result<Vec<SessionInfo>, String> {
 
     let mut sessions: Vec<SessionInfo> = Vec::new();
     for row in rows {
-        let mut s = row.map_err(|e| format!("解析失败: {}", e))?;
-        s.folder_name = folder_name(&s.directory);
+        let s = row.map_err(|e| format!("解析失败: {}", e))?;
         sessions.push(s);
     }
 

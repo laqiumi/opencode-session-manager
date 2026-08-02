@@ -1,47 +1,108 @@
+mod claude;
+mod codex;
 mod db;
 
 use serde::Serialize;
 use std::sync::Mutex;
 use tauri::State;
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Source {
+    OpenCode,
+    Codex,
+    Claude,
+}
+
 pub struct AppState {
-    pub db_path: Mutex<String>,
+    pub opencode_db: Mutex<String>,
+    pub codex_dir: Mutex<String>,
+    pub claude_dir: Mutex<String>,
 }
 
 #[derive(Serialize, Clone)]
 pub struct SessionInfo {
+    pub source: String,
     pub id: String,
     pub title: String,
     pub directory: String,
     pub folder_name: String,
-    pub project_name: Option<String>,
     pub model: Option<String>,
-    pub agent: Option<String>,
     pub time_created: i64,
     pub time_updated: i64,
-    pub time_archived: Option<i64>,
     pub message_count: i64,
-    pub cost: f64,
-    pub tokens_input: i64,
-    pub tokens_output: i64,
     pub last_user_message: Option<String>,
+}
+
+pub fn default_codex_dir() -> String {
+    if let Ok(p) = std::env::var("CODEX_DIR") {
+        return p;
+    }
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".codex")
+        .to_string_lossy()
+        .to_string()
+}
+
+pub fn default_claude_dir() -> String {
+    if let Ok(p) = std::env::var("CLAUDE_CONFIG_DIR") {
+        return p;
+    }
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".claude")
+        .to_string_lossy()
+        .to_string()
 }
 
 #[tauri::command]
 fn get_db_path(state: State<AppState>) -> String {
-    state.db_path.lock().unwrap().clone()
+    state.opencode_db.lock().unwrap().clone()
 }
 
 #[tauri::command]
-fn list_sessions(state: State<AppState>) -> Result<Vec<SessionInfo>, String> {
-    let path = state.db_path.lock().unwrap().clone();
-    db::list_sessions(&path)
+fn list_sessions(state: State<AppState>, source: Source) -> Result<Vec<SessionInfo>, String> {
+    let mut sessions = match source {
+        Source::OpenCode => {
+            let path = state.opencode_db.lock().unwrap().clone();
+            db::list_sessions(&path)?
+        }
+        Source::Codex => {
+            let dir = state.codex_dir.lock().unwrap().clone();
+            codex::list_sessions(&dir)?
+        }
+        Source::Claude => {
+            let dir = state.claude_dir.lock().unwrap().clone();
+            claude::list_sessions(&dir)?
+        }
+    };
+
+    for s in sessions.iter_mut() {
+        s.source = source_str(source).to_string();
+        s.folder_name = folder_name(&s.directory);
+    }
+
+    sessions.sort_by(|a, b| b.time_updated.cmp(&a.time_updated));
+    Ok(sessions)
 }
 
 #[tauri::command]
-fn delete_session(state: State<AppState>, id: String) -> Result<(), String> {
-    let path = state.db_path.lock().unwrap().clone();
-    db::delete_session(&path, &id)
+fn delete_session(state: State<AppState>, source: Source, id: String) -> Result<(), String> {
+    match source {
+        Source::OpenCode => {
+            let path = state.opencode_db.lock().unwrap().clone();
+            db::delete_session(&path, &id)
+        }
+        Source::Codex => {
+            let dir = state.codex_dir.lock().unwrap().clone();
+            codex::delete_session(&dir, &id)
+        }
+        Source::Claude => {
+            let dir = state.claude_dir.lock().unwrap().clone();
+            claude::delete_session(&dir, &id)
+        }
+    }
 }
 
 #[tauri::command]
@@ -50,19 +111,37 @@ fn open_folder(directory: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn continue_session(
-    directory: String,
-    id: String,
-) -> Result<String, String> {
+fn continue_session(source: Source, directory: String, id: String) -> Result<String, String> {
     let dir = if directory.is_empty() {
         ".".to_string()
     } else {
         directory
     };
 
-    let shell_cmd = format!("opencode -s {}", id);
+    let shell_cmd = match source {
+        Source::OpenCode => format!("opencode -s {}", id),
+        // Codex 是桌面客户端操作，无需在终端继续
+        Source::Codex => {
+            return Err("Codex 会话请直接在 Codex 客户端中继续".to_string());
+        }
+        Source::Claude => format!("claude --resume {}", id),
+    };
+
     spawn_in_terminal(&dir, &shell_cmd)?;
     Ok(format!("已在新终端继续会话 {}", id))
+}
+
+fn source_str(source: Source) -> &'static str {
+    match source {
+        Source::OpenCode => "opencode",
+        Source::Codex => "codex",
+        Source::Claude => "claude",
+    }
+}
+
+fn folder_name(directory: &str) -> String {
+    let d = directory.trim_end_matches(['/', '\\']);
+    d.rsplit(['/', '\\']).next().unwrap_or(d).to_string()
 }
 
 #[cfg(windows)]
@@ -110,12 +189,12 @@ fn spawn_in_terminal(dir: &str, shell_cmd: &str) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let db_path = db::default_db_path();
-
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {
-            db_path: Mutex::new(db_path),
+            opencode_db: Mutex::new(db::default_db_path()),
+            codex_dir: Mutex::new(default_codex_dir()),
+            claude_dir: Mutex::new(default_claude_dir()),
         })
         .invoke_handler(tauri::generate_handler![
             get_db_path,
