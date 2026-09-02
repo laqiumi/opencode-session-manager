@@ -115,6 +115,12 @@ function App() {
   const [detailTarget, setDetailTarget] = useState<SessionInfo | null>(null);
   const [detailItems, setDetailItems] = useState<ChatItem[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "dark");
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("theme", theme);
+  }, [theme]);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -436,6 +442,14 @@ function App() {
               />
             </svg>
             {loading ? "刷新中…" : "刷新"}
+          </button>
+
+          <button
+            className="refresh-btn"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            title={theme === "dark" ? "切换到明亮皮肤" : "切换到深色皮肤"}
+          >
+            {theme === "dark" ? "☀️" : "🌙"}
           </button>
 
           <button className="refresh-btn settings-btn" onClick={() => setSettingsOpen(true)}>

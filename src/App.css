@@ -17,6 +17,56 @@
   color: var(--text);
 }
 
+/* ============ 明亮皮肤 ============ */
+
+[data-theme="light"] {
+  --bg: #f5f6f8;
+  --bg-elev: #ffffff;
+  --bg-hover: #eef1f5;
+  --border: #d9dee6;
+  --text: #1c2330;
+  --text-dim: #5a6472;
+  --text-faint: #8a94a3;
+  --accent: #2f6fe0;
+  --accent-dim: #b9cff5;
+  --danger: #d93026;
+  --danger-dim: #f6dcd9;
+}
+
+/* 明亮皮肤下修正硬编码颜色的对比度 */
+
+[data-theme="light"] .refresh-btn:hover:not(:disabled),
+[data-theme="light"] .act-btn:hover:not(:disabled) {
+  border-color: #c3cad4;
+}
+
+[data-theme="light"] .tag.model,
+[data-theme="light"] .tag.source-opencode,
+[data-theme="light"] .settings-note code {
+  color: #1d4ed8;
+  background: rgba(47, 111, 224, 0.1);
+}
+
+[data-theme="light"] .tag.source-codex {
+  color: #047857;
+  background: rgba(4, 120, 87, 0.1);
+}
+
+[data-theme="light"] .tag.source-claude {
+  color: #b45309;
+  background: rgba(180, 83, 9, 0.1);
+}
+
+[data-theme="light"] .tag.agent {
+  color: #6d28d9;
+  background: rgba(109, 40, 217, 0.1);
+}
+
+[data-theme="light"] .act-btn.danger:hover:not(:disabled) {
+  color: #8f1d15;
+  border-color: #e5b7b2;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
