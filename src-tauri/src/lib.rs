@@ -177,7 +177,24 @@ fn spawn_in_terminal(dir: &str, shell_cmd: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+fn spawn_in_terminal(dir: &str, shell_cmd: &str) -> Result<(), String> {
+    // TUI 程序必须有 tty，直接 spawn sh 进程会在后台静默退出；
+    // 用 AppleScript 让 Terminal.app 新开窗口执行，同时复用用户 shell 的 PATH
+    let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
+    let script = format!(
+        "tell application \"Terminal\" to do script \"cd \\\"{}\\\" && {}\"",
+        esc(dir),
+        esc(shell_cmd)
+    );
+    std::process::Command::new("osascript")
+        .args(["-e", &script, "-e", "tell application \"Terminal\" to activate"])
+        .spawn()
+        .map_err(|e| format!("无法打开终端: {}", e))?;
+    Ok(())
+}
+
+#[cfg(all(not(windows), not(target_os = "macos")))]
 fn spawn_in_terminal(dir: &str, shell_cmd: &str) -> Result<(), String> {
     std::process::Command::new("sh")
         .arg("-c")
