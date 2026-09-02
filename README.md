@@ -13,6 +13,52 @@
   - **⧉ ID**：复制会话 ID
   - **🗑 删除**：从数据库删除会话（含关联消息，不可恢复，有确认）
 
+## 安装指南（macOS，从源码构建）
+
+### 1. 环境依赖
+
+- Node.js 18+：`brew install node`
+- Rust 工具链（任选其一）：
+  - `brew install rust`
+  - 或 rustup（国内建议清华镜像）：
+    ```bash
+    curl -fL -o /tmp/rustup-init https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup/dist/aarch64-apple-darwin/rustup-init
+    chmod +x /tmp/rustup-init
+    RUSTUP_DIST_SERVER=https://mirrors.tuna.tsinghua.edu.cn/rustup \
+    RUSTUP_UPDATE_ROOT=https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup \
+    /tmp/rustup-init -y --default-toolchain stable --profile minimal
+    source "$HOME/.cargo/env"
+    ```
+- Xcode Command Line Tools：`xcode-select --install`（一般已有）
+
+### 2. 构建
+
+```bash
+git clone https://github.com/laqiumi/opencode-session-manager.git
+cd opencode-session-manager
+npm install
+npm run tauri build
+```
+
+首次构建约需 20~30 分钟（编译 Rust 依赖），产物在：
+
+- App：`src-tauri/target/release/bundle/macos/opencode-session-manager.app`
+- DMG：`src-tauri/target/release/bundle/dmg/`
+
+### 3. 安装到系统
+
+```bash
+cp -R src-tauri/target/release/bundle/macos/opencode-session-manager.app /Applications/
+xattr -dr com.apple.quarantine /Applications/opencode-session-manager.app
+```
+
+之后从启动台打开即可。
+
+### 4. 使用注意
+
+- 「▶ 继续」会在 **Terminal.app** 新开窗口执行 `opencode -s <id>`，首次点击时 macOS 会请求「允许控制 Terminal」，需点允许
+- 需要 `opencode` 命令在 shell 的 PATH 中（Terminal 新窗口会加载你的 shell 配置）
+
 ## 开发
 
 ```bash
