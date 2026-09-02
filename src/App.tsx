@@ -56,6 +56,12 @@ function App() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appVersion, setAppVersion] = useState("");
+  const [terminalPreset, setTerminalPreset] = useState(
+    () => localStorage.getItem("terminalPreset") || "terminal",
+  );
+  const [terminalCustomCmd, setTerminalCustomCmd] = useState(
+    () => localStorage.getItem("terminalCustomCmd") || "",
+  );
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -138,11 +144,15 @@ function App() {
 
   const handleContinue = useCallback(
     (s: SessionInfo) => {
-      invoke("continue_session", { source: s.source, directory: s.directory, id: s.id }).catch(
-        (e) => alert(`无法继续会话：${e}`),
-      );
+      invoke("continue_session", {
+        source: s.source,
+        directory: s.directory,
+        id: s.id,
+        preset: terminalPreset,
+        customCmd: terminalCustomCmd,
+      }).catch((e) => alert(`无法继续会话：${e}`));
     },
-    [],
+    [terminalPreset, terminalCustomCmd],
   );
 
   const handleOpenFolder = useCallback(
@@ -488,6 +498,39 @@ function App() {
                     刷新列表
                   </button>
                 </div>
+              </section>
+
+              <section className="settings-section">
+                <h3>终端</h3>
+                <div className="terminal-field">
+                  <select
+                    value={terminalPreset}
+                    onChange={(e) => {
+                      setTerminalPreset(e.target.value);
+                      localStorage.setItem("terminalPreset", e.target.value);
+                    }}
+                  >
+                    <option value="terminal">Terminal.app（默认）</option>
+                    <option value="ghostty">Ghostty</option>
+                    <option value="custom">自定义命令</option>
+                  </select>
+                  {terminalPreset === "custom" && (
+                    <input
+                      value={terminalCustomCmd}
+                      onChange={(e) => {
+                        setTerminalCustomCmd(e.target.value);
+                        localStorage.setItem("terminalCustomCmd", e.target.value);
+                      }}
+                      placeholder="open -na Ghostty.app --args -e sh -lc {cmd}"
+                    />
+                  )}
+                </div>
+                {terminalPreset === "custom" && (
+                  <p className="settings-note" style={{ marginTop: 8 }}>
+                    占位符：<code>{"{dir}"}</code> 会话目录，<code>{"{cmd}"}</code>{" "}
+                    完整命令（含 cd），替换时自动 shell 转义，直接裸写即可
+                  </p>
+                )}
               </section>
 
               <section className="settings-section">

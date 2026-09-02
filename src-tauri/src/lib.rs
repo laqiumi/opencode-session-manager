@@ -111,7 +111,13 @@ fn open_folder(directory: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn continue_session(source: Source, directory: String, id: String) -> Result<String, String> {
+fn continue_session(
+    source: Source,
+    directory: String,
+    id: String,
+    preset: Option<String>,
+    custom_cmd: Option<String>,
+) -> Result<String, String> {
     let dir = if directory.is_empty() {
         ".".to_string()
     } else {
@@ -127,8 +133,13 @@ fn continue_session(source: Source, directory: String, id: String) -> Result<Str
         Source::Claude => format!("claude --resume {}", id),
     };
 
-    spawn_in_terminal(&dir, &shell_cmd)?;
+    spawn_in_terminal(&dir, &shell_cmd, preset.as_deref(), custom_cmd.as_deref())?;
     Ok(format!("已在新终端继续会话 {}", id))
+}
+
+// shell 单引号转义，供自定义终端模板替换 {dir}/{cmd} 使用
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 fn source_str(source: Source) -> &'static str {
@@ -145,7 +156,12 @@ fn folder_name(directory: &str) -> String {
 }
 
 #[cfg(windows)]
-fn spawn_in_terminal(dir: &str, shell_cmd: &str) -> Result<(), String> {
+fn spawn_in_terminal(
+    dir: &str,
+    shell_cmd: &str,
+    _preset: Option<&str>,
+    _custom_cmd: Option<&str>,
+) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
 
     // 优先用 Windows Terminal 开新标签页
@@ -178,24 +194,70 @@ fn spawn_in_terminal(dir: &str, shell_cmd: &str) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-fn spawn_in_terminal(dir: &str, shell_cmd: &str) -> Result<(), String> {
-    // TUI 程序必须有 tty，直接 spawn sh 进程会在后台静默退出；
-    // 用 AppleScript 让 Terminal.app 新开窗口执行，同时复用用户 shell 的 PATH
-    let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
-    let script = format!(
-        "tell application \"Terminal\" to do script \"cd \\\"{}\\\" && {}\"",
-        esc(dir),
-        esc(shell_cmd)
-    );
-    std::process::Command::new("osascript")
-        .args(["-e", &script, "-e", "tell application \"Terminal\" to activate"])
-        .spawn()
-        .map_err(|e| format!("无法打开终端: {}", e))?;
-    Ok(())
+fn spawn_in_terminal(
+    dir: &str,
+    shell_cmd: &str,
+    preset: Option<&str>,
+    custom_cmd: Option<&str>,
+) -> Result<(), String> {
+    let full_cmd = format!("cd \"{}\" && {}", dir, shell_cmd);
+    match preset.unwrap_or("terminal") {
+        "ghostty" => {
+            // Ghostty 不支持 AppleScript，macOS 上需用 open --args 传 -e；
+            // sh -lc 保证加载用户 shell 配置的 PATH
+            if !std::path::Path::new("/Applications/Ghostty.app").exists() {
+                return Err("未安装 Ghostty（/Applications/Ghostty.app 不存在）".to_string());
+            }
+            std::process::Command::new("open")
+                .args(["-na", "Ghostty.app", "--args", "-e", "sh", "-lc", &full_cmd])
+                .spawn()
+                .map_err(|e| format!("无法打开 Ghostty: {}", e))?;
+            Ok(())
+        }
+        "custom" => {
+            let tpl = custom_cmd.unwrap_or("").trim();
+            if tpl.is_empty() {
+                return Err("未配置自定义终端命令".to_string());
+            }
+            // {dir}/{cmd} 已做单引号转义，用户模板里直接裸写占位符即可
+            let cmdline = tpl
+                .replace("{dir}", &shell_quote(dir))
+                .replace("{cmd}", &shell_quote(&full_cmd));
+            std::process::Command::new("sh")
+                .args(["-c", &cmdline])
+                .spawn()
+                .map_err(|e| format!("无法执行自定义终端命令: {}", e))?;
+            Ok(())
+        }
+        _ => {
+            // TUI 程序必须有 tty，直接 spawn sh 进程会在后台静默退出；
+            // 用 AppleScript 让 Terminal.app 新开窗口执行，同时复用用户 shell 的 PATH
+            let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
+            let script = format!(
+                "tell application \"Terminal\" to do script \"{}\"",
+                esc(&full_cmd)
+            );
+            std::process::Command::new("osascript")
+                .args([
+                    "-e",
+                    &script,
+                    "-e",
+                    "tell application \"Terminal\" to activate",
+                ])
+                .spawn()
+                .map_err(|e| format!("无法打开终端: {}", e))?;
+            Ok(())
+        }
+    }
 }
 
 #[cfg(all(not(windows), not(target_os = "macos")))]
-fn spawn_in_terminal(dir: &str, shell_cmd: &str) -> Result<(), String> {
+fn spawn_in_terminal(
+    dir: &str,
+    shell_cmd: &str,
+    _preset: Option<&str>,
+    _custom_cmd: Option<&str>,
+) -> Result<(), String> {
     std::process::Command::new("sh")
         .arg("-c")
         .arg(format!("cd \"{}\" && {}", dir, shell_cmd))
