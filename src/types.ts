@@ -5,6 +5,7 @@ export interface SessionInfo {
   directory: string;
   folder_name: string;
   model: string | null;
+  models: string[];
   time_created: number;
   time_updated: number;
   message_count: number;

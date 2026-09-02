@@ -28,6 +28,7 @@ pub struct SessionInfo {
     pub directory: String,
     pub folder_name: String,
     pub model: Option<String>,
+    pub models: Vec<String>,
     pub time_created: i64,
     pub time_updated: i64,
     pub message_count: i64,

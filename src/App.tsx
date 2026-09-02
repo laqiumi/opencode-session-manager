@@ -517,6 +517,12 @@ function App() {
                       <span className="meta-icon">💬</span>
                       {s.message_count}
                     </span>
+                    {s.models.length > 0 && (
+                      <span className="meta-item" title={`使用的模型：${s.models.join(", ")}`}>
+                        <span className="meta-icon">🤖</span>
+                        {s.models.join(", ")}
+                      </span>
+                    )}
                   </div>
                 </div>
 

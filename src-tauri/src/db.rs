@@ -148,7 +148,14 @@ pub fn list_sessions(path: &str) -> Result<Vec<SessionInfo>, String> {
                       AND COALESCE(json_extract(pt.data, '$.synthetic'), 0) = 0
                     ORDER BY pt.time_created DESC
                     LIMIT 1
-                ) AS last_user_part
+                ) AS last_user_part,
+                (
+                    SELECT GROUP_CONCAT(DISTINCT json_extract(m.data, '$.modelID'))
+                    FROM message m
+                    WHERE m.session_id = s.id
+                      AND json_extract(m.data, '$.role') = 'assistant'
+                      AND json_extract(m.data, '$.modelID') IS NOT NULL
+                ) AS models_used
             FROM session s
             ORDER BY s.time_updated DESC
             "#,
@@ -168,6 +175,22 @@ pub fn list_sessions(path: &str) -> Result<Vec<SessionInfo>, String> {
                 .filter(|s| !s.is_empty());
 
             let directory: String = row.get(2)?;
+            let model: Option<String> = row.get(3)?;
+
+            // 优先用消息级聚合的实际模型；无 assistant 消息时回退 session.model 里的 id
+            let models_used: Option<String> = row.get(8)?;
+            let models: Vec<String> = models_used
+                .map(|csv| csv.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+                .filter(|v: &Vec<String>| !v.is_empty())
+                .or_else(|| {
+                    model.as_deref().and_then(|raw| {
+                        serde_json::from_str::<serde_json::Value>(raw)
+                            .ok()
+                            .and_then(|v| v.get("id")?.as_str().map(|s| s.to_string()))
+                            .map(|id| vec![id])
+                    })
+                })
+                .unwrap_or_default();
 
             Ok(SessionInfo {
                 source: String::new(),
@@ -175,7 +198,8 @@ pub fn list_sessions(path: &str) -> Result<Vec<SessionInfo>, String> {
                 title: row.get(1)?,
                 directory: directory.clone(),
                 folder_name: folder_name(&directory),
-                model: row.get(3)?,
+                model,
+                models,
                 time_created: row.get(4)?,
                 time_updated: row.get(5)?,
                 message_count: row.get(6)?,
@@ -255,6 +279,10 @@ mod tests {
 
         let with_last = sessions.iter().filter(|s| s.last_user_message.is_some()).count();
         println!("有最后用户消息的会话: {} / {}", with_last, sessions.len());
+
+        let with_models = sessions.iter().filter(|s| !s.models.is_empty()).count();
+        assert!(with_models > 0, "应至少有一个会话能解析出使用的模型");
+        println!("有模型信息的会话: {} / {}", with_models, sessions.len());
     }
 
     #[test]
