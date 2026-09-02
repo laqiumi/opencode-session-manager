@@ -40,6 +40,26 @@ function formatFullTime(ts: number): string {
 
 type Source = "opencode" | "codex" | "claude";
 
+type TimeBucket = "today" | "yesterday" | "week" | "month" | "earlier";
+
+const TIME_BUCKETS: { key: TimeBucket; label: string; icon: string }[] = [
+  { key: "today", label: "今天", icon: "📅" },
+  { key: "yesterday", label: "昨天", icon: "🕐" },
+  { key: "week", label: "近 7 天", icon: "🗓" },
+  { key: "month", label: "近 30 天", icon: "📆" },
+  { key: "earlier", label: "更早", icon: "🕰" },
+];
+
+function bucketOf(ts: number): TimeBucket {
+  const dayStart = new Date().setHours(0, 0, 0, 0);
+  const day = 86_400_000;
+  if (ts >= dayStart) return "today";
+  if (ts >= dayStart - day) return "yesterday";
+  if (ts >= dayStart - 7 * day) return "week";
+  if (ts >= dayStart - 30 * day) return "month";
+  return "earlier";
+}
+
 interface ChatItem {
   role: string;
   kind: string; // text / tool / reasoning
@@ -77,6 +97,7 @@ function App() {
   const [search, setSearch] = useState("");
   const [source, setSource] = useState<Source>("opencode");
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [selectedTime, setSelectedTime] = useState<TimeBucket | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appVersion, setAppVersion] = useState("");
@@ -141,10 +162,22 @@ function App() {
     return [...map.values()].sort((a, b) => b.lastActive - a.lastActive);
   }, [sessions]);
 
+  const timeCounts = useMemo(() => {
+    const counts = new Map<TimeBucket, number>();
+    for (const s of sessions) {
+      const b = bucketOf(s.time_updated);
+      counts.set(b, (counts.get(b) || 0) + 1);
+    }
+    return counts;
+  }, [sessions]);
+
   const filtered = useMemo(() => {
     let list = sessions;
     if (selectedFolder) {
       list = list.filter((s) => s.folder_name === selectedFolder);
+    }
+    if (selectedTime) {
+      list = list.filter((s) => bucketOf(s.time_updated) === selectedTime);
     }
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -156,7 +189,7 @@ function App() {
       );
     }
     return list;
-  }, [sessions, selectedFolder, search]);
+  }, [sessions, selectedFolder, selectedTime, search]);
 
   const handleDelete = useCallback(
     async (s: SessionInfo) => {
@@ -287,18 +320,46 @@ function App() {
 
         <nav className="folder-nav">
           <button
-            className={`folder-item ${selectedFolder === null ? "active" : ""}`}
-            onClick={() => setSelectedFolder(null)}
+            className={`folder-item ${selectedFolder === null && selectedTime === null ? "active" : ""}`}
+            onClick={() => {
+              setSelectedFolder(null);
+              setSelectedTime(null);
+            }}
           >
             <span className="folder-icon">🗂</span>
             <span className="folder-name">全部会话</span>
             <span className="folder-count">{sessions.length}</span>
           </button>
+
+          <div className="nav-heading">按时间</div>
+          {TIME_BUCKETS.map((b) => {
+            const count = timeCounts.get(b.key) || 0;
+            if (count === 0) return null;
+            return (
+              <button
+                key={b.key}
+                className={`folder-item ${selectedTime === b.key ? "active" : ""}`}
+                onClick={() => {
+                  setSelectedTime(b.key);
+                  setSelectedFolder(null);
+                }}
+              >
+                <span className="folder-icon">{b.icon}</span>
+                <span className="folder-name">{b.label}</span>
+                <span className="folder-count">{count}</span>
+              </button>
+            );
+          })}
+
+          <div className="nav-heading">按文件夹</div>
           {folders.map((f) => (
             <button
               key={f.name}
               className={`folder-item ${selectedFolder === f.name ? "active" : ""}`}
-              onClick={() => setSelectedFolder(f.name)}
+              onClick={() => {
+                setSelectedFolder(f.name);
+                setSelectedTime(null);
+              }}
               title={`最后活跃 ${formatTime(f.lastActive)}`}
             >
               <span className="folder-icon">📁</span>
