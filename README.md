@@ -31,6 +31,17 @@
 
 ### 安装步骤（macOS）
 
+#### 方式一：下载安装包（推荐）
+
+1. 到 [Releases](https://github.com/laqiumi/opencode-session-manager/releases) 下载最新 DMG（Apple Silicon）
+2. 打开 DMG，把 `opencode-session-manager.app` 拖入「应用程序」
+3. 首次打开如提示"已损坏/无法验证"（未签名应用的正常现象），执行：
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/opencode-session-manager.app
+   ```
+
+#### 方式二：从源码构建
+
 **1. 环境依赖**
 
 - Node.js 18+：`brew install node`
@@ -115,6 +126,17 @@ Tech stack: Tauri 2 · React 19 · TypeScript · rusqlite (reads SQLite directly
 | Themes | Light / dark theme toggle with persistence |
 
 ### Installation (macOS)
+
+#### Option 1: Download the installer (recommended)
+
+1. Download the latest DMG (Apple Silicon) from [Releases](https://github.com/laqiumi/opencode-session-manager/releases)
+2. Open the DMG and drag `opencode-session-manager.app` into Applications
+3. If macOS says the app is "damaged" on first launch (normal for unsigned apps), run:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/opencode-session-manager.app
+   ```
+
+#### Option 2: Build from source
 
 **1. Prerequisites**
 
