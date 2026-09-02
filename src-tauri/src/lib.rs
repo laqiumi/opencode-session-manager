@@ -133,8 +133,67 @@ fn continue_session(
         Source::Claude => format!("claude --resume {}", id),
     };
 
+    // 目录可能已被移动/删除，返回带前缀的错误供前端走自助修复流程
+    if !std::path::Path::new(&dir).is_dir() {
+        return Err(format!("DIR_NOT_FOUND:{}", dir));
+    }
+
     spawn_in_terminal(&dir, &shell_cmd, preset.as_deref(), custom_cmd.as_deref())?;
     Ok(format!("已在新终端继续会话 {}", id))
+}
+
+// 用 Spotlight 按文件夹名搜可能迁移到的新位置，省得用户手输路径
+#[tauri::command]
+fn search_moved_directory(directory: String) -> Vec<String> {
+    let name = directory
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .to_string();
+    if name.is_empty() {
+        return vec![];
+    }
+    let output = std::process::Command::new("mdfind")
+        .args(["-name", &name])
+        .output();
+    let mut candidates: Vec<String> = output
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default()
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|p| {
+            !p.is_empty()
+                && p != &directory
+                && p.rsplit(['/', '\\']).next() == Some(name.as_str())
+                && std::path::Path::new(p).is_dir()
+        })
+        .collect();
+    candidates.sort();
+    candidates.dedup();
+    candidates.truncate(10);
+    candidates
+}
+
+#[tauri::command]
+fn update_session_directory(
+    state: State<AppState>,
+    source: Source,
+    id: String,
+    new_dir: String,
+) -> Result<(), String> {
+    if !std::path::Path::new(&new_dir).is_dir() {
+        return Err(format!("目录不存在: {}", new_dir));
+    }
+    match source {
+        Source::OpenCode => {
+            let path = state.opencode_db.lock().unwrap().clone();
+            db::update_session_directory(&path, &id, &new_dir)
+        }
+        // Codex/Claude 会话不存在 opencode.db 里，暂不支持改目录
+        _ => Err("仅支持修复 OpenCode 会话的目录".to_string()),
+    }
 }
 
 // shell 单引号转义，供自定义终端模板替换 {dir}/{cmd} 使用
@@ -270,6 +329,7 @@ fn spawn_in_terminal(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             opencode_db: Mutex::new(db::default_db_path()),
             codex_dir: Mutex::new(default_codex_dir()),
@@ -280,7 +340,9 @@ pub fn run() {
             list_sessions,
             delete_session,
             open_folder,
-            continue_session
+            continue_session,
+            search_moved_directory,
+            update_session_directory
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

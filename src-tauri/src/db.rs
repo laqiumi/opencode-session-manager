@@ -113,6 +113,20 @@ pub fn delete_session(path: &str, id: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub fn update_session_directory(path: &str, id: &str, new_dir: &str) -> Result<(), String> {
+    let conn = Connection::open(path).map_err(|e| format!("无法打开数据库: {}", e))?;
+    let affected = conn
+        .execute(
+            "UPDATE session SET directory = ?1 WHERE id = ?2",
+            rusqlite::params![new_dir, id],
+        )
+        .map_err(|e| format!("更新目录失败: {}", e))?;
+    if affected == 0 {
+        return Err(format!("未找到会话 {}", id));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

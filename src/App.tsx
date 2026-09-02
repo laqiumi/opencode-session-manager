@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { SessionInfo } from "./types";
 import "./App.css";
 
@@ -62,6 +63,11 @@ function App() {
   const [terminalCustomCmd, setTerminalCustomCmd] = useState(
     () => localStorage.getItem("terminalCustomCmd") || "",
   );
+  const [fixTarget, setFixTarget] = useState<SessionInfo | null>(null);
+  const [fixOldDir, setFixOldDir] = useState("");
+  const [fixCandidates, setFixCandidates] = useState<string[]>([]);
+  const [fixSelected, setFixSelected] = useState("");
+  const [fixSearching, setFixSearching] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -150,10 +156,62 @@ function App() {
         id: s.id,
         preset: terminalPreset,
         customCmd: terminalCustomCmd,
-      }).catch((e) => alert(`无法继续会话：${e}`));
+      }).catch((e) => {
+        const msg = String(e);
+        if (msg.startsWith("DIR_NOT_FOUND:")) {
+          // 目录被移动/删除：打开修复弹窗并自动搜索候选新路径
+          const oldDir = msg.slice("DIR_NOT_FOUND:".length);
+          setFixTarget(s);
+          setFixOldDir(oldDir);
+          setFixCandidates([]);
+          setFixSelected("");
+          setFixSearching(true);
+          invoke<string[]>("search_moved_directory", { directory: oldDir })
+            .then((list) => {
+              setFixCandidates(list);
+              if (list.length === 1) setFixSelected(list[0]);
+            })
+            .catch(() => {})
+            .finally(() => setFixSearching(false));
+        } else {
+          alert(`无法继续会话：${e}`);
+        }
+      });
     },
     [terminalPreset, terminalCustomCmd],
   );
+
+  const handleFixPick = useCallback(async () => {
+    const picked = await openDialog({ directory: true, title: "选择会话的新目录" });
+    if (typeof picked === "string") setFixSelected(picked);
+  }, []);
+
+  const handleFixConfirm = useCallback(() => {
+    if (!fixTarget || !fixSelected) return;
+    const s = fixTarget;
+    invoke("update_session_directory", {
+      source: s.source,
+      id: s.id,
+      newDir: fixSelected,
+    })
+      .then(() => {
+        const newDir = fixSelected;
+        setSessions((prev) =>
+          prev.map((x) =>
+            x.id === s.id && x.source === s.source
+              ? {
+                  ...x,
+                  directory: newDir,
+                  folder_name: newDir.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || newDir,
+                }
+              : x,
+          ),
+        );
+        setFixTarget(null);
+        handleContinue({ ...s, directory: newDir });
+      })
+      .catch((e) => alert(`修复失败：${e}`));
+  }, [fixTarget, fixSelected, handleContinue]);
 
   const handleOpenFolder = useCallback(
     (s: SessionInfo) => {
@@ -411,6 +469,60 @@ function App() {
             ))}
         </div>
       </main>
+
+      {fixTarget && (
+        <div className="modal-overlay" onClick={() => setFixTarget(null)}>
+          <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="settings-header">
+              <h2>目录已失效</h2>
+              <button className="search-clear close-btn" onClick={() => setFixTarget(null)}>
+                ×
+              </button>
+            </div>
+            <div className="settings-body">
+              <section className="settings-section">
+                <h3>会话「{fixTarget.title}」的原目录不存在</h3>
+                <div className="info-row">
+                  <span className="info-label">原目录</span>
+                  <span className="info-value mono">{fixOldDir}</span>
+                </div>
+              </section>
+              <section className="settings-section">
+                <h3>选择新目录</h3>
+                {fixSearching && <p className="settings-note">正在搜索可能的新位置…</p>}
+                {!fixSearching && fixCandidates.length === 0 && (
+                  <p className="settings-note">未自动找到同名文件夹，请手动选择</p>
+                )}
+                <div className="fix-list">
+                  {fixCandidates.map((p) => (
+                    <label key={p} className="fix-item">
+                      <input
+                        type="radio"
+                        name="fix-dir"
+                        checked={fixSelected === p}
+                        onChange={() => setFixSelected(p)}
+                      />
+                      <span className="mono">{p}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="settings-actions">
+                  <button className="refresh-btn" onClick={handleFixPick}>
+                    📂 手动选择…
+                  </button>
+                  <button
+                    className="refresh-btn"
+                    disabled={!fixSelected}
+                    onClick={handleFixConfirm}
+                  >
+                    ✅ 修复并继续
+                  </button>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      )}
 
       {settingsOpen && (
         <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>

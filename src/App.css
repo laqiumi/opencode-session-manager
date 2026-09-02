@@ -734,3 +734,32 @@ body {
   font-family: Consolas, "Courier New", monospace;
   font-size: 12px;
 }
+
+.fix-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.fix-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  font-size: 12px;
+  cursor: pointer;
+  word-break: break-all;
+}
+
+.fix-item:has(input:checked) {
+  border-color: var(--accent-dim);
+}
+
+.fix-item .mono {
+  font-family: Consolas, "Courier New", monospace;
+  color: var(--text);
+}
