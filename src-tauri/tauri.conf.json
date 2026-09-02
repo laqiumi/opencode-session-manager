@@ -13,8 +13,10 @@
     "windows": [
       {
         "title": "opencode-session-manager",
-        "width": 800,
-        "height": 600
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600
       }
     ],
     "security": {
