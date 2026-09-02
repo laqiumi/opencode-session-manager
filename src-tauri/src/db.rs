@@ -1,7 +1,105 @@
 use rusqlite::Connection;
 use std::path::PathBuf;
 
-use crate::SessionInfo;
+use crate::{ChatItem, SessionInfo};
+
+// 截断超长文本（按字符数，避免截断 UTF-8 多字节字符）
+fn truncate_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    format!("{}…", s.chars().take(max).collect::<String>())
+}
+
+pub fn session_messages(path: &str, id: &str) -> Result<Vec<ChatItem>, String> {
+    let conn = open_readonly(path)?;
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT m.data, p.data
+            FROM message m
+            LEFT JOIN part p ON p.message_id = m.id
+            WHERE m.session_id = ?1
+            ORDER BY m.time_created, m.id, p.time_created, p.id
+            "#,
+        )
+        .map_err(|e| format!("查询失败: {}", e))?;
+
+    let rows = stmt
+        .query_map([id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })
+        .map_err(|e| format!("读取失败: {}", e))?;
+
+    let mut items: Vec<ChatItem> = Vec::new();
+    for row in rows {
+        let (mraw, praw) = row.map_err(|e| format!("解析失败: {}", e))?;
+        let role = serde_json::from_str::<serde_json::Value>(&mraw)
+            .ok()
+            .and_then(|v| v.get("role")?.as_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| "unknown".to_string());
+        let Some(praw) = praw else { continue };
+        let Ok(p) = serde_json::from_str::<serde_json::Value>(&praw) else {
+            continue;
+        };
+        let get = |k: &str| p.get(k).and_then(|v| v.as_str()).map(|s| s.to_string());
+        match p.get("type").and_then(|t| t.as_str()) {
+            Some("text") => {
+                let text = get("text").unwrap_or_default();
+                if !text.trim().is_empty() {
+                    items.push(ChatItem {
+                        role: role.clone(),
+                        kind: "text".into(),
+                        text: Some(text),
+                        tool: None,
+                        input: None,
+                        output: None,
+                    });
+                }
+            }
+            Some("tool") => {
+                let state = p.get("state").cloned().unwrap_or_default();
+                let input = state
+                    .get("input")
+                    .map(|v| {
+                        // input 是对象：bash 取 command，其余整体序列化
+                        v.get("command")
+                            .and_then(|c| c.as_str())
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| truncate_chars(&v.to_string(), 500))
+                    });
+                let output = state
+                    .get("output")
+                    .and_then(|o| o.as_str())
+                    .map(|s| truncate_chars(s, 2000));
+                items.push(ChatItem {
+                    role: role.clone(),
+                    kind: "tool".into(),
+                    text: None,
+                    tool: get("tool"),
+                    input,
+                    output,
+                });
+            }
+            Some("reasoning") => {
+                let text = get("text").unwrap_or_default();
+                if !text.trim().is_empty() {
+                    items.push(ChatItem {
+                        role: role.clone(),
+                        kind: "reasoning".into(),
+                        text: Some(truncate_chars(&text, 4000)),
+                        tool: None,
+                        input: None,
+                        output: None,
+                    });
+                }
+            }
+            // step-start/step-finish 等无展示价值，跳过
+            _ => {}
+        }
+    }
+    Ok(items)
+}
 
 pub fn default_db_path() -> String {
     if let Ok(p) = std::env::var("OPENCODE_DB_PATH") {
@@ -157,6 +255,16 @@ mod tests {
 
         let with_last = sessions.iter().filter(|s| s.last_user_message.is_some()).count();
         println!("有最后用户消息的会话: {} / {}", with_last, sessions.len());
+    }
+
+    #[test]
+    fn test_session_messages_reads_real_db() {
+        let path = default_db_path();
+        let sessions = list_sessions(&path).expect("应该能读取真实数据库");
+        let with_msgs = sessions.iter().find(|s| s.message_count > 0).expect("应有带消息的会话");
+        let items = session_messages(&path, &with_msgs.id).expect("应该能读取会话消息");
+        assert!(!items.is_empty(), "有消息的会话应解析出详情条目");
+        assert!(items.iter().any(|i| i.kind == "text"), "应至少有一条文本消息");
     }
 
     #[test]

@@ -40,6 +40,29 @@ function formatFullTime(ts: number): string {
 
 type Source = "opencode" | "codex" | "claude";
 
+interface ChatItem {
+  role: string;
+  kind: string; // text / tool / reasoning
+  text: string | null;
+  tool: string | null;
+  input: string | null;
+  output: string | null;
+}
+
+// 长文本默认折叠，点击展开/收起
+function ExpandableText({ text, limit = 300 }: { text: string; limit?: number }) {
+  const [expanded, setExpanded] = useState(false);
+  if (text.length <= limit) return <span className="msg-text">{text}</span>;
+  return (
+    <span className="msg-text">
+      {expanded ? text : text.slice(0, limit)}
+      <button className="expand-btn" onClick={() => setExpanded(!expanded)}>
+        {expanded ? "▲ 收起" : "… 展开全部"}
+      </button>
+    </span>
+  );
+}
+
 const SOURCE_TABS: { key: Source; label: string; icon: string }[] = [
   { key: "opencode", label: "OpenCode", icon: "⌘" },
   { key: "codex", label: "Codex", icon: "✳" },
@@ -68,6 +91,9 @@ function App() {
   const [fixCandidates, setFixCandidates] = useState<string[]>([]);
   const [fixSelected, setFixSelected] = useState("");
   const [fixSearching, setFixSearching] = useState(false);
+  const [detailTarget, setDetailTarget] = useState<SessionInfo | null>(null);
+  const [detailItems, setDetailItems] = useState<ChatItem[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -180,6 +206,16 @@ function App() {
     },
     [terminalPreset, terminalCustomCmd],
   );
+
+  const handleDetail = useCallback((s: SessionInfo) => {
+    setDetailTarget(s);
+    setDetailItems([]);
+    setDetailLoading(true);
+    invoke<ChatItem[]>("session_messages", { source: s.source, id: s.id })
+      .then(setDetailItems)
+      .catch((e) => alert(`加载详情失败：${e}`))
+      .finally(() => setDetailLoading(false));
+  }, []);
 
   const handleFixPick = useCallback(async () => {
     const picked = await openDialog({ directory: true, title: "选择会话的新目录" });
@@ -433,6 +469,15 @@ function App() {
                 </div>
 
                 <div className="session-actions">
+                  {s.source === "opencode" && (
+                    <button
+                      className="act-btn"
+                      onClick={() => handleDetail(s)}
+                      title="查看会话详情"
+                    >
+                      ☰ 详情
+                    </button>
+                  )}
                   {s.source !== "codex" && (
                     <button
                       className="act-btn"
@@ -469,6 +514,66 @@ function App() {
             ))}
         </div>
       </main>
+
+      {detailTarget && (
+        <div className="modal-overlay" onClick={() => setDetailTarget(null)}>
+          <div
+            className="settings-panel detail-panel"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="settings-header">
+              <h2>{detailTarget.title || "会话详情"}</h2>
+              <button className="search-clear close-btn" onClick={() => setDetailTarget(null)}>
+                ×
+              </button>
+            </div>
+            <div className="detail-meta">
+              <span title={detailTarget.id}>🆔 {detailTarget.id}</span>
+              <span title={detailTarget.directory}>📁 {detailTarget.directory}</span>
+              {detailTarget.model && <span>🤖 {detailTarget.model}</span>}
+              <span>💬 {detailTarget.message_count} 条消息</span>
+              <span>🕐 {formatFullTime(detailTarget.time_updated)}</span>
+            </div>
+            <div className="detail-body">
+              {detailLoading && <p className="settings-note">加载中…</p>}
+              {!detailLoading && detailItems.length === 0 && (
+                <p className="settings-note">没有可展示的消息</p>
+              )}
+              {detailItems.map((item, i) => {
+                if (item.kind === "tool") {
+                  const summary = (item.input || "").split("\n")[0].slice(0, 80);
+                  return (
+                    <details key={i} className="msg-tool">
+                      <summary>
+                        🔧 {item.tool || "tool"}
+                        {summary && <span className="tool-summary">{summary}</span>}
+                      </summary>
+                      {item.input && <pre className="tool-detail">{item.input}</pre>}
+                      {item.output && <pre className="tool-detail">{item.output}</pre>}
+                    </details>
+                  );
+                }
+                if (item.kind === "reasoning") {
+                  return (
+                    <details key={i} className="msg-reasoning">
+                      <summary>💭 思考过程</summary>
+                      <pre className="tool-detail">{item.text}</pre>
+                    </details>
+                  );
+                }
+                return (
+                  <div key={i} className={`msg-row ${item.role === "user" ? "user" : ""}`}>
+                    <div className="msg-role">{item.role === "user" ? "👤 用户" : "🤖 助手"}</div>
+                    <div className={`msg-bubble ${item.role}`}>
+                      <ExpandableText text={item.text || ""} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {fixTarget && (
         <div className="modal-overlay" onClick={() => setFixTarget(null)}>

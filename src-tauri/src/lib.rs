@@ -56,6 +56,31 @@ pub fn default_claude_dir() -> String {
         .to_string()
 }
 
+#[derive(Serialize, Clone)]
+pub struct ChatItem {
+    pub role: String,
+    pub kind: String, // text / tool / reasoning
+    pub text: Option<String>,
+    pub tool: Option<String>,
+    pub input: Option<String>,
+    pub output: Option<String>,
+}
+
+#[tauri::command]
+fn session_messages(
+    state: State<AppState>,
+    source: Source,
+    id: String,
+) -> Result<Vec<ChatItem>, String> {
+    match source {
+        Source::OpenCode => {
+            let path = state.opencode_db.lock().unwrap().clone();
+            db::session_messages(&path, &id)
+        }
+        _ => Err("详情暂仅支持 OpenCode 会话".to_string()),
+    }
+}
+
 #[tauri::command]
 fn get_db_path(state: State<AppState>) -> String {
     state.opencode_db.lock().unwrap().clone()
@@ -342,7 +367,8 @@ pub fn run() {
             open_folder,
             continue_session,
             search_moved_directory,
-            update_session_directory
+            update_session_directory,
+            session_messages
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
